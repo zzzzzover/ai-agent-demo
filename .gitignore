@@ -1,0 +1,15 @@
+# 凭证：绝不入库
+.env
+
+# 运行时产物
+agent_out/
+*.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
