@@ -98,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with Tracer(cfg.trace_path, verbose=cfg.verbose) as tracer:
         if cfg.verbose:
+            print(f"run       : {tracer.run_id}")
             print(f"root      : {sandbox.root}")
             print(f"out-dir   : {sandbox.rel(sandbox.out_dir)}/")
             print(f"model     : {cfg.model}")
@@ -106,6 +107,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"max-steps : {cfg.max_steps}{'  [dry-run]' if cfg.dry_run else ''}")
             print(f"task      : {cfg.task}")
             print("-" * 64)
+
+        tracer.event(
+            "run_start",
+            root=str(sandbox.root),
+            out_dir=sandbox.rel(sandbox.out_dir),
+            model=cfg.model,
+            task=cfg.task,
+            max_steps=cfg.max_steps,
+            allow_cmds=list(cfg.allow_cmds),
+            dry_run=cfg.dry_run,
+        )
 
         result = AgentLoop(
             llm,
@@ -121,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             f"token     : prompt={tracer.prompt_tokens} "
             f"completion={tracer.completion_tokens} 合计={tracer.total_tokens}"
         )
-        print(f"trace     : {sandbox.rel(cfg.trace_path)}")
+        print(f"trace     : {sandbox.rel(cfg.trace_path)}  (run={tracer.run_id})")
         print()
         print(result.summary)
 

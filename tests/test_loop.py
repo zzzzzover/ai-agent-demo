@@ -225,6 +225,27 @@ def test_trace_records_every_step(env):
     assert "tool_call" in printed and "finish" in printed
 
 
+def test_trace_records_carry_the_run_id(env):
+    """trace.jsonl 是追加写入的，必须靠 run 字段区分是哪一次运行。"""
+    from agent_demo.trace import Tracer
+
+    loop, _ = make_loop(env, [call("finish", {"summary": "第一次"})])
+    loop.run("第一次")
+
+    second = Tracer(env.root / "agent_out" / "trace.jsonl", verbose=False)
+    AgentLoop(FakeLLM([call("finish", {"summary": "第二次"})]), env.registry, second).run("第二次")
+    env.tracer.close()
+    second.close()
+
+    records = [
+        json.loads(line)
+        for line in (env.root / "agent_out" / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    runs = {record["run"] for record in records}
+    assert len(runs) == 2, "两次运行必须落到不同的 run 标识上"
+    assert all("run" in record for record in records)
+
+
 def test_token_usage_accumulates(env):
     loop, _ = make_loop(
         env,

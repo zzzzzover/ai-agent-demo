@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import IO, Any
 
@@ -25,12 +26,15 @@ class Tracer:
         *,
         verbose: bool = True,
         stream: IO[str] | None = None,
+        run_id: str | None = None,
     ) -> None:
         self._path = path
         self._verbose = verbose
         self._stream = stream if stream is not None else sys.stdout
         self._fh: IO[str] | None = None
 
+        # trace.jsonl 是追加写入的：多次运行共用一个文件，靠 run 区分是哪一次
+        self.run_id = run_id or uuid.uuid4().hex[:8]
         self.step = 1
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -41,6 +45,7 @@ class Tracer:
         """记录一个事件，返回落盘的原始记录（测试里可直接断言）。"""
         record: dict[str, Any] = {
             "ts": round(time.time(), 3),
+            "run": self.run_id,
             "step": self.step,
             "event": kind,
             **payload,
@@ -114,6 +119,8 @@ def _summarize(record: dict[str, Any]) -> str:
         return f"{record.get('reason')}: {_clip(str(record.get('summary') or ''))}"
     if kind == "error":
         return _clip(str(record.get("error") or ""))
+    if kind == "run_start":
+        return f"run={record.get('run')} root={record.get('root')} model={record.get('model')}"
     return _clip(json.dumps(record, ensure_ascii=False))
 
 

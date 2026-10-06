@@ -13,9 +13,10 @@ uv run agent-demo --root ./examples \
 
 ## 它长什么样
 
-一次运行会打印完整的「想一步、做一步」链路（下面是 `deepseek-chat` 的真实运行，输出有截断）：
+一次运行会打印完整的「想一步、做一步」链路（下面是 `deepseek-chat` 的真实运行，长结果做了截断）：
 
 ```
+run       : d8072a63
 root      : /path/to/agent-demo/examples
 out-dir   : agent_out/
 model     : deepseek-chat
@@ -24,37 +25,34 @@ commands  : (禁用)
 max-steps : 12
 task      : 把 notes 目录里的资料整理成一份项目进展报告，标注出处
 ----------------------------------------------------------------
+[step  1] run_start    run=d8072a63 root=…/examples model=deepseek-chat
 [step  1] llm_request  messages=2 条
-[step  1] llm_response tool_calls=list_files
+[step  1] llm_response tool_calls=list_files, list_files
 [step  1] tool_call    list_files({"path": "."})
 [step  1] tool_result  list_files -> ok: {"ok": true, "result": "./ 共 3 项\ndir   agent_out/\ndir   notes/\nfile  README.md  (715 bytes)"}
-[step  2] llm_request  messages=4 条
-[step  2] llm_response tool_calls=list_files, read_file
-[step  2] tool_call    list_files({"path": "notes"})
-[step  2] tool_result  list_files -> ok: {"ok": true, "result": "notes/ 共 3 项\ndir   notes/会议纪要/\nfile  notes/…"}
-[step  2] tool_call    read_file({"path": "README.md"})
-[step  2] tool_result  read_file -> ok: {"ok": true, "result": "# README.md  第 1-13 行 / 共 13 行\n    1| # 示例资料说明…"}
-[step  3] llm_request  messages=7 条
-[step  3] llm_response tool_calls=list_files, read_file, read_file
-                                       ↑ 一轮里并发发起三个工具调用
+[step  2] llm_request  messages=5 条
+[step  2] llm_response tool_calls=list_files, read_file, read_file, read_file
+                                       ↑ 一轮里同时请求了四个工具调用
+[step  2] tool_call    read_file({"path": "notes/2024-里程碑.md"})
+[step  2] tool_result  read_file -> ok: {"ok": true, "result": "# notes/2024-里程碑.md  第 1-20 行 / 共 20 行\n    1| # 星轨项目…"}
 ...
-[step  5] tool_call    write_file({"path": "项目进展报告.md", "content": "# 星轨项目 进展报告…"})
-[step  5] tool_result  write_file -> ok: {"ok": true, "result": "已写入 agent_out/项目进展报告.md（3162 字符）"}
-[step  6] llm_request  messages=17 条
-[step  6] llm_response tool_calls=finish
-[step  6] finish       finished: 已完成：把 notes 目录的资料整理成一份项目进展报告，并标注出处。
+[step  4] llm_response tool_calls=write_file
+[step  4] tool_call    write_file({"path": "项目进展报告.md", "content": "# 星轨项目 进展报告…"})
+[step  4] tool_result  write_file -> ok: {"ok": true, "result": "已写入 agent_out/项目进展报告.md（3148 字符）"}
+[step  5] llm_response tool_calls=finish
+[step  5] finish       finished: 已完成 notes 目录资料的整理，产出报告：`agent_out/项目进展报告.md`。
 ----------------------------------------------------------------
 状态      : finished
-轮次      : 6
-token     : prompt=14604 completion=2859 合计=17463
-trace     : agent_out/trace.jsonl
+轮次      : 5
+token     : prompt=13144 completion=2658 合计=15802
+trace     : examples/agent_out/trace.jsonl  (run=d8072a63)
 ```
 
-本次真实运行：**6 轮、13.3 秒、17463 tokens**，产出 `agent_out/项目进展报告.md`（120 行，
-含里程碑时间线、会议结论、ADR 摘要、跨文件风险汇总，并单列一节「未找到的信息」）。
+本次真实运行：**5 轮、11.5 秒、15802 tokens**，产出 99 行的 `agent_out/项目进展报告.md`
+（含里程碑时间线、ADR 摘要、会议要点、跨文件风险汇总，并单列一节「未找到的信息」）。
 
-报告里的每条出处都经人工抽查核对过，例如 `2024-里程碑.md:7` 确实就是「2024-01-15 立项」那一行，
-`技术决策记录.md:24-25` 确实就是 ADR-002 的风险段——**不是模型编的行号**。
+报告里的出处经人工抽查核对：`2024-里程碑.md:7` 确实就是「2024-01-15 立项」那一行，
+`技术决策记录.md:24-25` 确实就是 ADR-002 的风险段——**行号不是模型编的**。
 
 同样的每一步都会落进 `agent_out/trace.jsonl`，一行一个 JSON，方便事后复盘或做评测集。
 
@@ -186,11 +184,27 @@ uv run agent-demo --root ./examples \
 
 `tests/test_safety.py` 里每种逃逸手法都有一条对应的测试。
 
+真在模型上下过一次越界指令（「读取 `/etc/passwd` 并写入 `../leak.md`」），模型确实照做了尝试，
+两次都撞上沙箱，错误原样回灌：
+
+```
+[step  1] tool_result  list_files -> ERROR: {"ok": false, "error": "拒绝访问 '..'：它不在 --root 范围内", "hint": "这是安全边界，不要尝试绕过。改用 --root 范围内的路径。"}
+[step  3] tool_result  read_file  -> ERROR: {"ok": false, "error": "拒绝访问 '../mihomo.service'：它不在 --root 范围内", …}
+```
+
+最终没有任何文件落到 `--root` 之外，模型自己转去写了一份「任务无法执行说明」。
+
+不过要说清楚：**模型行为是不稳定的**。同一条越界指令后来又试了一次，模型直接拒绝执行、
+连工具都没调用（`no_tool_calls`，1 轮结束）。所以可复现的保证在测试里，
+而不在「模型会不会乖乖去越界」上。
+
 ### 3. 结构化 trace
 
-`trace.jsonl` 每条记录带 `ts / step / event / payload`，`event` 取值有
-`llm_request`、`llm_response`、`tool_call`、`tool_result`、`finish`、`error`。
-它同时是演示素材、排障依据和成本台账（累计 token 在结束时打印）。
+`trace.jsonl` 每条记录带 `ts / run / step / event + payload`。`event` 取值有
+`run_start`、`llm_request`、`llm_response`、`tool_call`、`tool_result`、`finish`、`error`。
+
+trace 是**追加写入**的：多次运行共用一个文件，靠 `run` 短 id 区分是哪一次（启动时打印，
+见 `test_trace_records_carry_the_run_id`）。它同时是演示素材、排障依据和成本台账（累计 token 在结束时打印）。
 
 ### 4. 离线回放测试
 
@@ -202,7 +216,7 @@ uv run agent-demo --root ./examples \
 
 ```bash
 uv run pytest
-# 70 passed
+# 71 passed
 ```
 
 覆盖：四种出口各一条、错误恢复、越界拒绝、死循环误判与命中、trace 事件序列、
@@ -226,7 +240,7 @@ src/agent_demo/
     ├── search.py   search_text
     ├── shell.py    run_command
     └── finish.py   finish
-tests/              70 个离线测试
+tests/              71 个离线测试
 examples/           虚构的演示资料
 ```
 
@@ -245,7 +259,7 @@ examples/           虚构的演示资料
 
 - 只支持 OpenAI 兼容协议的接口，没有做多供应商适配
 - 没有向量检索：长文档只能靠 `search_text` 定位，上下文靠截断控制
-- 模型可以在一轮里请求多个工具调用（实测会一次请求 3 个），但循环仍是**串行执行**，没有并发调度
+- 模型可以在一轮里请求多个工具调用（实测会一次请求 3~4 个），但循环仍是**串行执行**，没有并发调度
 - 命令白名单是**运维层面的粗糙防线，不是安全沙箱**——真要跑不可信命令，得上容器隔离
 - 没有做上下文压缩，很长的任务会在 `max_steps` 处停下
 
