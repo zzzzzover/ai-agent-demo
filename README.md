@@ -277,3 +277,7 @@ examples/           虚构的演示资料
 会直接抛 `InvalidURL: Invalid port: ':1]'`——和请求无关，构造阶段就炸。
 
 `llm.py` 里的 `sanitize_no_proxy()` 会在建客户端之前剔除这类条目（它们只影响"哪些地址不走代理"，剔除无实际影响，有对应测试）。
+
+## License
+
+[MIT](LICENSE)
