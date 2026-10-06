@@ -13,7 +13,7 @@ uv run agent-demo --root ./examples \
 
 ## 它长什么样
 
-一次运行会打印完整的「想一步、做一步」链路：
+一次运行会打印完整的「想一步、做一步」链路（下面是 `deepseek-chat` 的真实运行，输出有截断）：
 
 ```
 root      : /path/to/agent-demo/examples
@@ -26,23 +26,35 @@ task      : 把 notes 目录里的资料整理成一份项目进展报告，标�
 ----------------------------------------------------------------
 [step  1] llm_request  messages=2 条
 [step  1] llm_response tool_calls=list_files
-[step  1] tool_call    list_files({"path": "notes"})
-[step  1] tool_result  list_files -> ok: {"ok": true, "result": "notes/ 共 3 项\ndir   notes/会议纪要/\nfile  notes/…"}
+[step  1] tool_call    list_files({"path": "."})
+[step  1] tool_result  list_files -> ok: {"ok": true, "result": "./ 共 3 项\ndir   agent_out/\ndir   notes/\nfile  README.md  (715 bytes)"}
 [step  2] llm_request  messages=4 条
-[step  2] llm_response tool_calls=read_file
-[step  2] tool_call    read_file({"path": "notes/2024-里程碑.md"})
-[step  2] tool_result  read_file -> ok: {"ok": true, "result": "# notes/2024-里程碑.md  第 1-20 行 / 共 20 行\n    1| # 星轨项目…"}
+[step  2] llm_response tool_calls=list_files, read_file
+[step  2] tool_call    list_files({"path": "notes"})
+[step  2] tool_result  list_files -> ok: {"ok": true, "result": "notes/ 共 3 项\ndir   notes/会议纪要/\nfile  notes/…"}
+[step  2] tool_call    read_file({"path": "README.md"})
+[step  2] tool_result  read_file -> ok: {"ok": true, "result": "# README.md  第 1-13 行 / 共 13 行\n    1| # 示例资料说明…"}
+[step  3] llm_request  messages=7 条
+[step  3] llm_response tool_calls=list_files, read_file, read_file
+                                       ↑ 一轮里并发发起三个工具调用
 ...
-[step  7] tool_call    finish({"summary": "已生成 agent_out/report.md，含 3 条里程碑与 2 项风险，均标注出处。"})
+[step  5] tool_call    write_file({"path": "项目进展报告.md", "content": "# 星轨项目 进展报告…"})
+[step  5] tool_result  write_file -> ok: {"ok": true, "result": "已写入 agent_out/项目进展报告.md（3162 字符）"}
+[step  6] llm_request  messages=17 条
+[step  6] llm_response tool_calls=finish
+[step  6] finish       finished: 已完成：把 notes 目录的资料整理成一份项目进展报告，并标注出处。
 ----------------------------------------------------------------
 状态      : finished
-轮次      : 7
-token     : prompt=… completion=… 合计=…
+轮次      : 6
+token     : prompt=14604 completion=2859 合计=17463
 trace     : agent_out/trace.jsonl
 ```
 
-> 上面这段是**用回放模型**跑出来的（见「离线回放测试」一节），所以 token 数省略了。
-> 换成真实模型时输出结构完全一致。
+本次真实运行：**6 轮、13.3 秒、17463 tokens**，产出 `agent_out/项目进展报告.md`（120 行，
+含里程碑时间线、会议结论、ADR 摘要、跨文件风险汇总，并单列一节「未找到的信息」）。
+
+报告里的每条出处都经人工抽查核对过，例如 `2024-里程碑.md:7` 确实就是「2024-01-15 立项」那一行，
+`技术决策记录.md:24-25` 确实就是 ADR-002 的风险段——**不是模型编的行号**。
 
 同样的每一步都会落进 `agent_out/trace.jsonl`，一行一个 JSON，方便事后复盘或做评测集。
 
@@ -114,7 +126,7 @@ uv run agent-demo --root ./examples \
 
 产出：
 
-- `examples/agent_out/report.md` —— agent 写的报告
+- `examples/agent_out/` 下的报告文件（文件名由 agent 自己定，实测是 `项目进展报告.md`）
 - `examples/agent_out/trace.jsonl` —— 每一步的结构化记录
 
 `examples/` 里是**为此演示虚构的**零散笔记（里程碑、会议纪要、决策记录分散在不同文件与子目录），
@@ -233,7 +245,7 @@ examples/           虚构的演示资料
 
 - 只支持 OpenAI 兼容协议的接口，没有做多供应商适配
 - 没有向量检索：长文档只能靠 `search_text` 定位，上下文靠截断控制
-- 单进程串行执行工具，没有并行工具调用
+- 模型可以在一轮里请求多个工具调用（实测会一次请求 3 个），但循环仍是**串行执行**，没有并发调度
 - 命令白名单是**运维层面的粗糙防线，不是安全沙箱**——真要跑不可信命令，得上容器隔离
 - 没有做上下文压缩，很长的任务会在 `max_steps` 处停下
 
