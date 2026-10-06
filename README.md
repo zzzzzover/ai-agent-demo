@@ -16,7 +16,7 @@ uv run agent-demo --root ./examples \
 一次运行会打印完整的「想一步、做一步」链路（下面是 `deepseek-chat` 的真实运行，长结果做了截断）：
 
 ```
-run       : d8072a63
+run       : c7c9a2f8
 root      : /path/to/agent-demo/examples
 out-dir   : agent_out/
 model     : deepseek-chat
@@ -25,34 +25,40 @@ commands  : (禁用)
 max-steps : 12
 task      : 把 notes 目录里的资料整理成一份项目进展报告，标注出处
 ----------------------------------------------------------------
-[step  1] run_start    run=d8072a63 root=…/examples model=deepseek-chat
+[step  1] run_start    run=c7c9a2f8 root=…/examples model=deepseek-chat
 [step  1] llm_request  messages=2 条
 [step  1] llm_response tool_calls=list_files, list_files
+                                       ↑ 一轮里同时请求两个工具调用
 [step  1] tool_call    list_files({"path": "."})
-[step  1] tool_result  list_files -> ok: {"ok": true, "result": "./ 共 3 项\ndir   agent_out/\ndir   notes/\nfile  README.md  (715 bytes)"}
+[step  1] tool_result  list_files -> ok: {"ok": true, "result": "./ 共 3 项\ndir   agent_out/\ndir   notes/\nfile  README.md  (1066 bytes)"}
+[step  1] tool_call    list_files({"path": "notes"})
+[step  1] tool_result  list_files -> ok: {"ok": true, "result": "notes/ 共 3 项\ndir   notes/讨论记录/\nfile  notes/2024-里程碑.md…"}
 [step  2] llm_request  messages=5 条
-[step  2] llm_response tool_calls=list_files, read_file, read_file, read_file
-                                       ↑ 一轮里同时请求了四个工具调用
-[step  2] tool_call    read_file({"path": "notes/2024-里程碑.md"})
-[step  2] tool_result  read_file -> ok: {"ok": true, "result": "# notes/2024-里程碑.md  第 1-20 行 / 共 20 行\n    1| # 星轨项目…"}
+[step  2] llm_response tool_calls=list_files, read_file
+[step  2] tool_call    read_file({"path": "README.md"})
+[step  2] tool_result  read_file -> ok: {"ok": true, "result": "# README.md  第 1-19 行 / 共 19 行\n    1| # 示例资料说明\n    3| > **这里是演示用的虚构数据。**…"}
 ...
-[step  4] llm_response tool_calls=write_file
-[step  4] tool_call    write_file({"path": "项目进展报告.md", "content": "# 星轨项目 进展报告…"})
-[step  4] tool_result  write_file -> ok: {"ok": true, "result": "已写入 agent_out/项目进展报告.md（3148 字符）"}
-[step  5] llm_response tool_calls=finish
-[step  5] finish       finished: 已完成 notes 目录资料的整理，产出报告：`agent_out/项目进展报告.md`。
+[step  6] llm_response tool_calls=write_file
+[step  6] tool_call    write_file({"path": "项目进展报告.md", "content": "# 示例项目 X — 项目进展报告（2024 上半年）…"})
+[step  6] tool_result  write_file -> ok: {"ok": true, "result": "已写入 agent_out/项目进展报告.md（3282 字符）"}
+[step  7] llm_response tool_calls=finish
+[step  7] finish       finished: 已整理 notes 目录全部资料，产出报告：agent_out/项目进展报告.md
 ----------------------------------------------------------------
 状态      : finished
-轮次      : 5
-token     : prompt=13144 completion=2658 合计=15802
-trace     : examples/agent_out/trace.jsonl  (run=d8072a63)
+轮次      : 7
+token     : prompt=19099 completion=2641 合计=21740
+trace     : examples/agent_out/trace.jsonl  (run=c7c9a2f8)
 ```
 
-本次真实运行：**5 轮、11.5 秒、15802 tokens**，产出 99 行的 `agent_out/项目进展报告.md`
-（含里程碑时间线、ADR 摘要、会议要点、跨文件风险汇总，并单列一节「未找到的信息」）。
+本次真实运行：**7 轮、13.6 秒、21740 tokens**，产出 112 行的 `agent_out/项目进展报告.md`
+（含里程碑时间线、ADR 摘要、讨论要点、跨文件风险汇总，并单列一节「未找到的信息」）。
 
-报告里的出处经人工抽查核对：`2024-里程碑.md:7` 确实就是「2024-01-15 立项」那一行，
-`技术决策记录.md:24-25` 确实就是 ADR-002 的风险段——**行号不是模型编的**。
+报告里的出处经逐条核对：报告共引用 35 处 `文件:行号`，**每一处都能落到源文件的对应行上**
+（`notes/2024-里程碑.md:8` 就是「2024-01-15 立项」，`notes/技术决策记录.md:27-28` 就是 ADR-002 的风险段），
+没有越界行号，也没有编造内容。
+
+值得一提：每个示例文件开头的「本文件是演示用的虚构数据」声明，被 agent 读了进去，
+主动写进了报告开头——这正是「不许凭空编造、结论必须有出处」这条系统提示在起作用。
 
 同样的每一步都会落进 `agent_out/trace.jsonl`，一行一个 JSON，方便事后复盘或做评测集。
 
@@ -127,8 +133,10 @@ uv run agent-demo --root ./examples \
 - `examples/agent_out/` 下的报告文件（文件名由 agent 自己定，实测是 `项目进展报告.md`）
 - `examples/agent_out/trace.jsonl` —— 每一步的结构化记录
 
-`examples/` 里是**为此演示虚构的**零散笔记（里程碑、会议纪要、决策记录分散在不同文件与子目录），
-足以体现「先探查、再定位、最后综合」的过程。换成你自己的资料，直接改 `--root` 即可。
+`examples/` 里是**专门为演示编造的**零散笔记（虚构项目「示例项目 X」的里程碑、讨论记录、决策记录，
+分散在不同文件与子目录），足以体现「先探查、再定位、最后综合」的过程。
+每个文件开头都有醒目的虚构声明——这个形态乍看容易像真实工作文档，所以把「这是假的」写在最显眼处。
+换成你自己的资料，直接改 `--root` 即可。
 
 ### 常用参数
 
@@ -147,14 +155,14 @@ uv run agent-demo --root ./examples \
 
 六个工具，全部用 JSON Schema 声明，模型看到的就是这张表：
 
-| 工具 | 边界 |
-|---|---|
-| `list_files` | 只能列 `--root` 内的目录 |
-| `read_file` | 带行号返回，超长自动截断并明确告知；单文件上限 1 MB |
+| 工具            | 边界                                                               |
+| ------------- | ---------------------------------------------------------------- |
+| `list_files`  | 只能列 `--root` 内的目录                                                |
+| `read_file`   | 带行号返回，超长自动截断并明确告知；单文件上限 1 MB                                     |
 | `search_text` | 纯 Python 正则，不依赖 ripgrep；自动跳过 `.git`、`node_modules` 与 `--out-dir` |
-| `write_file` | **路径以 `--out-dir` 为基准**，因此不可能覆盖到原始资料 |
-| `run_command` | 默认禁用；白名单 + `shell=False` + 固定 `cwd` + 30 秒超时 |
-| `finish` | 显式宣告完成 |
+| `write_file`  | **路径以 `--out-dir` 为基准**，因此不可能覆盖到原始资料                             |
+| `run_command` | 默认禁用；白名单 + `shell=False` + 固定 `cwd` + 30 秒超时                     |
+| `finish`      | 显式宣告完成                                                           |
 
 新增一个工具只需要三步：写一个 `handler(ctx, **args) -> str`、写它的 JSON Schema、挂进 `build_registry`。循环层不用改。
 
@@ -189,7 +197,7 @@ uv run agent-demo --root ./examples \
 
 ```
 [step  1] tool_result  list_files -> ERROR: {"ok": false, "error": "拒绝访问 '..'：它不在 --root 范围内", "hint": "这是安全边界，不要尝试绕过。改用 --root 范围内的路径。"}
-[step  3] tool_result  read_file  -> ERROR: {"ok": false, "error": "拒绝访问 '../mihomo.service'：它不在 --root 范围内", …}
+[step  3] tool_result  read_file  -> ERROR: {"ok": false, "error": "拒绝访问 '../<root 外的某个文件>'：它不在 --root 范围内", …}
 ```
 
 最终没有任何文件落到 `--root` 之外，模型自己转去写了一份「任务无法执行说明」。
@@ -259,7 +267,7 @@ examples/           虚构的演示资料
 
 - 只支持 OpenAI 兼容协议的接口，没有做多供应商适配
 - 没有向量检索：长文档只能靠 `search_text` 定位，上下文靠截断控制
-- 模型可以在一轮里请求多个工具调用（实测会一次请求 3~4 个），但循环仍是**串行执行**，没有并发调度
+- 模型可以在一轮里请求多个工具调用（实测会一次请求 2~4 个），但循环仍是**串行执行**，没有并发调度
 - 命令白名单是**运维层面的粗糙防线，不是安全沙箱**——真要跑不可信命令，得上容器隔离
 - 没有做上下文压缩，很长的任务会在 `max_steps` 处停下
 
